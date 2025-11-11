@@ -39,13 +39,31 @@ def drawMatchesSquares(img1, img2, kps1, matches):
 def change_image(val):
     image = cv.imread(images[val])
     image_gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    kp, des = orb.detectAndCompute(image_gray, None)
-    matches = bf.match(des, train_image_des)
-    matches = sorted(matches, key = lambda x: x.distance)
-    # out = cv.drawMatches(image, kp, train_image, train_image_kp, matches[:50], outImg=None, flags=cv.DrawMatchesFlags_DRAW_RICH_KEYPOINTS)
-    out = drawMatchesSquares(image, train_image, kp, matches)
-    cv.imshow('duck', out)
+    image_blue = image[:,:,0]
+    image_green = image[:,:,1]
+    image_red = image[:,:,2]
+    
+    kp_gray, des_gray = orb.detectAndCompute(image_gray, None)
+    matches_gray = bf.match(des_gray, train_image_des)
+    matches_gray = sorted(matches_gray, key = lambda x: x.distance)
+    out_gray = drawMatchesSquares(image, train_image, kp_gray, matches_gray)
 
+    kp_blue, des_blue = orb.detectAndCompute(image_blue, None)
+    matches_blue = bf.match(des_blue, train_image_des)
+    matches_blue = sorted(matches_blue, key = lambda x: x.distance)
+    out_blue = drawMatchesSquares(image, train_image, kp_blue, matches_blue)
+
+    kp_green, des_green = orb.detectAndCompute(image_green, None)
+    matches_green = bf.match(des_green, train_image_des)
+    matches_green = sorted(matches_green, key = lambda x: x.distance)
+    out_green = drawMatchesSquares(image, train_image, kp_green, matches_green)
+
+    kp_red, des_red = orb.detectAndCompute(image_red, None)
+    matches_red = bf.match(des_red, train_image_des)
+    matches_red = sorted(matches_red, key = lambda x: x.distance)
+    out_red = drawMatchesSquares(image, train_image, kp_red, matches_red)
+    out = np.hstack((np.vstack((out_red, out_green)), np.vstack((out_blue, out_gray))))
+    cv.imshow('duck', out)
 
 if __name__ == '__main__':
     cv.namedWindow("duck", flags=cv.WINDOW_NORMAL)
