@@ -1,27 +1,60 @@
 import numpy as np
 import cv2 as cv
-import matplotlib.pyplot as plt
+from pathlib import Path
 
-img1 = cv.imread('./cool_duck_images/IMG_20251101_181840.jpg',cv.IMREAD_GRAYSCALE)          # queryImage
-img2 = cv.imread('./training_images/ducky.jpg',cv.IMREAD_GRAYSCALE) # trainImage
- 
-# Initiate ORB detector
+images = list(Path("cool_duck_images").rglob('*'))
+train_image = cv.imread('./training_images/ducky.jpg', cv.IMREAD_GRAYSCALE)
+
 orb = cv.ORB_create()
- 
-# find the keypoints and descriptors with ORB
-kp1, des1 = orb.detectAndCompute(img1,None)
-kp2, des2 = orb.detectAndCompute(img2,None)
-
-# create BFMatcher object
 bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
- 
-# Match descriptors.
-matches = bf.match(des1,des2)
- 
-# Sort them in the order of their distance.
-matches = sorted(matches, key = lambda x:x.distance)
- 
-# Draw first 10 matches.
-img3 = cv.drawMatches(img1,kp1,img2,kp2,matches[:10],None,flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
-plt.imshow(img3),plt.show()
+train_image_kp, train_image_des = orb.detectAndCompute(train_image, None)
+ 
+
+# matches = bf.match(des1,des2)
+# matches = sorted(matches, key = lambda x:x.distance)
+# img3 = cv.drawMatches(img1,kp1,img2,kp2,matches[:50],None,flags=cv.DrawMatchesFlags_DRAW_RICH_KEYPOINTS)
+
+def drawMatchesSquares(img1, img2, kps1, matches):
+    outImg = img1.copy()
+    out_h, out_w = outImg.shape[:2]
+    for m in matches:
+        i = m.queryIdx
+        kp = kps1[i].pt
+        kpx = kp[0]
+        kpy = kp[1]
+        h, w = img2.shape[:2]
+
+        x1 = kpx - w/2.0
+        y1 = kpy - h/2.0
+        x2 = kpx + w/2.0
+        y2 = kpy + h/2.0
+
+        x1 = int(np.clip(x1, 0, out_w - 1))
+        y1 = int(np.clip(y1, 0, out_h - 1))
+        x2 = int(np.clip(x2, 0, out_w - 1))
+        y2 = int(np.clip(y2, 0, out_h - 1))
+
+        cv.rectangle(outImg, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=5)
+
+    return outImg
+
+
+def change_image(val):
+    image = cv.imread(images[val])
+    kp, des = orb.detectAndCompute(image, None)
+    matches = bf.match(des, train_image_des)
+    matches = sorted(matches, key = lambda x: x.distance)
+    # out = cv.drawMatches(image, kp, train_image, train_image_kp, matches[:50], outImg=None, flags=cv.DrawMatchesFlags_DRAW_RICH_KEYPOINTS)
+    out = drawMatchesSquares(image, train_image, kp, matches[:50])
+    cv.imshow('duck', out)
+
+
+if __name__ == '__main__':
+    cv.namedWindow("duck", flags=cv.WINDOW_NORMAL)
+    cv.createTrackbar('Image', 'duck', 0, len(images)-1, change_image)
+    change_image(0)
+
+    while True:
+        if cv.waitKey(50) & 0xFF == ord('q'):
+            break
