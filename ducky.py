@@ -9,12 +9,8 @@ orb = cv.ORB_create()
 bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
 train_image_kp, train_image_des = orb.detectAndCompute(train_image, None)
+
  
-
-# matches = bf.match(des1,des2)
-# matches = sorted(matches, key = lambda x:x.distance)
-# img3 = cv.drawMatches(img1,kp1,img2,kp2,matches[:50],None,flags=cv.DrawMatchesFlags_DRAW_RICH_KEYPOINTS)
-
 def drawMatchesSquares(img1, img2, kps1, matches):
     outImg = img1.copy()
     out_h, out_w = outImg.shape[:2]
@@ -46,7 +42,7 @@ def change_image(val):
     matches = bf.match(des, train_image_des)
     matches = sorted(matches, key = lambda x: x.distance)
     # out = cv.drawMatches(image, kp, train_image, train_image_kp, matches[:50], outImg=None, flags=cv.DrawMatchesFlags_DRAW_RICH_KEYPOINTS)
-    out = drawMatchesSquares(image, train_image, kp, matches[:50])
+    out = drawMatchesSquares(image, train_image, kp, matches)
     cv.imshow('duck', out)
 
 
