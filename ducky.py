@@ -38,7 +38,8 @@ def drawMatchesSquares(img1, img2, kps1, matches):
 
 def change_image(val):
     image = cv.imread(images[val])
-    kp, des = orb.detectAndCompute(image, None)
+    image_gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    kp, des = orb.detectAndCompute(image_gray, None)
     matches = bf.match(des, train_image_des)
     matches = sorted(matches, key = lambda x: x.distance)
     # out = cv.drawMatches(image, kp, train_image, train_image_kp, matches[:50], outImg=None, flags=cv.DrawMatchesFlags_DRAW_RICH_KEYPOINTS)
