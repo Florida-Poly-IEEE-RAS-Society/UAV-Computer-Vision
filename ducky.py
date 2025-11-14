@@ -41,9 +41,14 @@ def get_rect(match, kps, rect_shape):
 
 
 def rect_area(r1):
-    w = r1[1][0] - r1[0][0]
-    h = r1[1][1] - r1[0][1]
-    return w * h
+    r1x1 = r1[0][0]
+    r1x2 = r1[1][0]
+    r1y1 = r1[0][1]
+    r1y2 = r1[1][1]
+
+    w = r1x2 - r1x1
+    h = r1y2 - r1y1
+    return abs(w * h)
 
 
 def draw_rects(img1, rects):
@@ -54,42 +59,51 @@ def draw_rects(img1, rects):
 
  
 def find_overlapping_rect(rect, rect_classes):
+    classes = []
     for i, class_of_rects in enumerate(rect_classes):
         for other_rect in class_of_rects:
             if rects_overlap(rect, other_rect):
-                return i
-    return None
+                classes.append(i)
+                break
+    return classes
 
 
 def sort_overlapping_rects(kps, rects):
     rect_classes = []
     for rect in rects:
-        i = find_overlapping_rect(rect, rect_classes)
-        if i != None:
-            rect_classes[i].append(rect)
+        i_s = find_overlapping_rect(rect, rect_classes)
+        if len(i_s) == 0:
+            rect_classes.append([rect])
         else:
-            rect_classes.append([rect])        
+            for i in i_s:
+                rect_classes[i].append(rect)
         
     return rect_classes
+
+
+def rect_union(r1, r2):
+    tl = (min(r1[0][0], r2[0][0]), min(r1[0][1], r2[0][1]))
+    br = (max(r1[1][0], r2[1][0]), max(r1[1][1], r2[1][1]))
+    return (tl, br)
+
+
+def rect_intersection(r1, r2):
+    tl = (max(r1[0][0], r2[0][0]), max(r1[0][1], r2[0][1]))
+    br = (min(r1[1][0], r2[1][0]), min(r1[1][1], r2[1][1]))
+    return (tl, br)
 
 
 def rect_class_union(rect_class):
     out_rect = rect_class[0]
     for rect in rect_class[1:]:
-        tl = (min(out_rect[0][0], rect[0][0]), min(out_rect[0][1], rect[0][1]))
-        br = (max(out_rect[1][0], rect[1][0]), max(out_rect[1][1], rect[1][1]))
-        out_rect = (tl, br)
-
+        out_rect = rect_union(out_rect, rect)
     return out_rect
 
 
 def rect_class_intersection(rect_class):
     out_rect = rect_class[0]
     for rect in rect_class[1:]:
-        tl = (max(out_rect[0][0], rect[0][0]), max(out_rect[0][1], rect[0][1]))
-        br = (min(out_rect[1][0], rect[1][0]), min(out_rect[1][1], rect[1][1]))
-        out_rect = (tl, br)
-
+        out_rect = rect_intersection(out_rect, rect)
     return out_rect
 
 
@@ -99,30 +113,50 @@ def rect_class_probability(rect_class):
     return rect_area(i) / rect_area(u)
 
 
-def filter_rect_classes(rect_classes):
-    def ok_prob(x):
-        return rect_class_probability(x) > 0.5
-    
-    return list(filter(ok_prob, rect_classes))
-        
-                
+def filter_high_overlap_rect_class(rect_class):
+    idx_set = [0]
+    for i in range(len(rect_class)):
+        for j in range(i+1, len(rect_class)):
+
+            i_a = rect_area(rect_class[i])
+            j_a = rect_area(rect_class[j])
+            intsec_a = rect_area(rect_intersection(rect_class[i], rect_class[j]))
+            outside_a = i_a + j_a - 2*intsec_a
+            if i != j and outside_a > 400_000:
+                # print(outside_a)
+                idx_set.append(j)
+
+    out = []
+    for i in set(idx_set):
+        out.append(rect_class[i])
+
+    return out
+
+def duck_color_mask(image):
+    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+    ly = np.array([10,150,150])
+    uy = np.array([70,255,255])
+    yellow = cv.inRange(hsv, ly, uy)
+
+    res = cv.bitwise_and(image, image, mask=yellow)
+    return res
+
+
 def change_image(val):
     image = cv.imread(images[val])
-    image_gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    duck = duck_color_mask(image)
+    image_gray = cv.cvtColor(duck, cv.COLOR_BGR2GRAY)
     
     kp, des = orb.detectAndCompute(image_gray, None)
     matches = bf.match(des, train_image_des)
     matches = sorted(matches, key = lambda x: x.distance)
-    rects = [get_rect(m, kp, train_image.shape[:2]) for m in matches]
+    rects = [get_rect(m, kp, (train_image.shape[0]/2, train_image.shape[1]/2)) for m in matches]
     rect_classes = sort_overlapping_rects(kp, rects)
-    i_rects = [rect_class_intersection(rect_class) for rect_class in rect_classes]
-    u_rects = [rect_class_union(rect_class) for rect_class in rect_classes]
-    
-    i_out = draw_rects(image, i_rects)
-    u_out = draw_rects(image, u_rects)
     r_out = draw_rects(image, rects)
-    ok_out = draw_rects(image, [rect[0] for rect in filter_rect_classes(rect_classes)])
-    out = np.vstack((np.hstack((i_out, u_out)), np.hstack((r_out, ok_out))))
+    out = np.hstack((r_out, duck))
+
+    print(len(rect_classes))
 
     cv.imshow('duck', out)
 
