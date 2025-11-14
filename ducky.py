@@ -2,15 +2,6 @@ import numpy as np
 import cv2 as cv
 from pathlib import Path
 
-images = list(Path("cool_duck_images").rglob('*'))
-train_image = cv.imread('./training_images/ducky.jpg', cv.IMREAD_GRAYSCALE)
-
-orb = cv.ORB_create()
-bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
-
-train_image_kp, train_image_des = orb.detectAndCompute(train_image, None)
-
-
 def rects_overlap(r1, r2):
     r1x1 = r1[0][0]
     r1x2 = r1[1][0]
@@ -139,22 +130,38 @@ def duck_color_mask(image):
     uy = np.array([70,255,255])
     yellow = cv.inRange(hsv, ly, uy)
 
-    res = cv.bitwise_and(image, image, mask=yellow)
+    # lw = np.array([0,0,50])
+    # uw = np.array([179,50,255])
+    # white = cv.inRange(hsv, lw, uw)
+
+    yellow_image = cv.bitwise_and(image, image, mask=yellow)
+    # white_image = cv.bitwise_and(image, image, mask=white)
+    res = yellow_image # cv.bitwise_or(yellow_image, white_image)
     return res
+
+
+images = list(Path("cool_duck_images").rglob('*'))
+train_image = cv.imread('./training_images/ducky.jpg')
+
+orb = cv.ORB_create()
+bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+
+train_image_kp, train_image_des = orb.detectAndCompute(cv.cvtColor(duck_color_mask(train_image), cv.COLOR_BGR2GRAY), None)
 
 
 def change_image(val):
     image = cv.imread(images[val])
     duck = duck_color_mask(image)
     image_gray = cv.cvtColor(duck, cv.COLOR_BGR2GRAY)
-    
+
     kp, des = orb.detectAndCompute(image_gray, None)
     matches = bf.match(des, train_image_des)
     matches = sorted(matches, key = lambda x: x.distance)
-    rects = [get_rect(m, kp, (train_image.shape[0]/2, train_image.shape[1]/2)) for m in matches]
+    rects = [get_rect(m, kp, (train_image.shape[0]/4, train_image.shape[1]/4)) for m in matches]
     rect_classes = sort_overlapping_rects(kp, rects)
-    r_out = draw_rects(image, rects)
-    out = np.hstack((r_out, duck))
+    rr_out = draw_rects(image, rects)
+    r_out = draw_rects(image, [rect_class_intersection(r) for r in rect_classes])
+    out = np.hstack((r_out, rr_out, duck))
 
     print(len(rect_classes))
 
