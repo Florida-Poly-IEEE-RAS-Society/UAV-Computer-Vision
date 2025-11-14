@@ -135,7 +135,7 @@ def filter_high_overlap_rect_class(rect_class):
 def duck_color_mask(image):
     hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
 
-    ly = np.array([10,150,150])
+    ly = np.array([10,150,0])
     uy = np.array([70,255,255])
     yellow = cv.inRange(hsv, ly, uy)
 
