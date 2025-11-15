@@ -48,6 +48,13 @@ def draw_rects(img1, rects):
         cv.rectangle(outImg, rect[0], rect[1], color=(0, 0, 255), thickness=5)
     return outImg
 
+
+def draw_points(img1, points):
+    outImg = img1.copy()
+    for point in points:
+        cv.circle(outImg, point, 30, (0, 0, 255), thickness=20)
+    return outImg
+
  
 def find_overlapping_rect(rect, rect_classes):
     classes = []
@@ -140,6 +147,17 @@ def duck_color_mask(image):
     return res
 
 
+def coordinates_from_rect_classes(rect_classes):
+    out = []
+    for rect_class in rect_classes:
+        rect = rect_class_intersection(rect_class)
+        w = rect[1][0] - rect[0][0]
+        h = rect[1][1] - rect[0][1]
+        midpoint = (int(rect[0][0] + w/2), int(rect[0][1] + h/2))
+        out.append(midpoint)
+    return out
+
+
 images = list(Path("cool_duck_images").rglob('*'))
 train_image = cv.imread('./training_images/ducky.jpg')
 
@@ -160,7 +178,7 @@ def change_image(val):
     rects = [get_rect(m, kp, (train_image.shape[0]/4, train_image.shape[1]/4)) for m in matches]
     rect_classes = sort_overlapping_rects(kp, rects)
     rr_out = draw_rects(image, rects)
-    r_out = draw_rects(image, [rect_class_intersection(r) for r in rect_classes])
+    r_out = draw_points(image, coordinates_from_rect_classes(rect_classes))
     out = np.hstack((r_out, rr_out, duck))
 
     print(len(rect_classes))
