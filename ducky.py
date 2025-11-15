@@ -66,6 +66,14 @@ def find_overlapping_rect(rect, rect_classes):
     return classes
 
 
+def should_consolidate_classes(rect_class1, rect_class2):
+    for rect1 in rect_class1:
+        for rect2 in rect_class2:
+            if rects_overlap(rect1, rect2):
+                return True
+    return False
+
+
 def sort_overlapping_rects(kps, rects):
     rect_classes = []
     for rect in rects:
@@ -75,8 +83,31 @@ def sort_overlapping_rects(kps, rects):
         else:
             for i in i_s:
                 rect_classes[i].append(rect)
-        
-    return rect_classes
+
+    # consolidate
+    # there's got to be a better way to do this
+    # sometimes two rectangles are not overlapping, so they are put in separate classes
+    # but, there are other rectangles that overlap both
+    # since there is a common overlap, they should all be in the same class
+    consolidated_rect_class_idxs = []
+    for i in range(len(rect_classes)):
+        for j in range(i+1, len(rect_classes)):
+            i_rc = rect_classes[i]
+            j_rc = rect_classes[j]
+            if should_consolidate_classes(i_rc, j_rc):
+                consolidated_rect_class_idxs.append((i, j))
+
+    for i, j in consolidated_rect_class_idxs:
+        for rect_class in rect_classes[j]:
+            rect_classes[i].append(rect_class)
+
+    bad_classes = set([j for _, j in consolidated_rect_class_idxs])
+    new_rect_classes = []
+    for i in range(len(rect_classes)):
+        if i not in bad_classes:
+            new_rect_classes.append(rect_classes[i])
+
+    return new_rect_classes
 
 
 def rect_union(r1, r2):
