@@ -2,67 +2,218 @@ import numpy as np
 import cv2 as cv
 from pathlib import Path
 
+def rects_overlap(r1, r2):
+    r1x1 = r1[0][0]
+    r1x2 = r1[1][0]
+    r1y1 = r1[0][1]
+    r1y2 = r1[1][1]
+
+    r2x1 = r2[0][0]
+    r2x2 = r2[1][0]
+    r2y1 = r2[0][1]
+    r2y2 = r2[1][1]
+    
+    return r1x1 < r2x2 and r1x2 > r2x1 and r1y1 < r2y2 and r1y2 > r2y1
+
+
+def get_rect(match, kps, rect_shape):
+    i = match.queryIdx
+    kp = kps[i].pt
+    kpx = kp[0]
+    kpy = kp[1]
+    h, w = rect_shape
+
+    x1 = int(kpx - w/2.0)
+    y1 = int(kpy - h/2.0)
+    x2 = int(kpx + w/2.0)
+    y2 = int(kpy + h/2.0)
+    
+    return ((x1, y1), (x2, y2))
+
+
+def rect_area(r1):
+    r1x1 = r1[0][0]
+    r1x2 = r1[1][0]
+    r1y1 = r1[0][1]
+    r1y2 = r1[1][1]
+
+    w = r1x2 - r1x1
+    h = r1y2 - r1y1
+    return abs(w * h)
+
+
+def draw_rects(img1, rects):
+    outImg = img1.copy()
+    for rect in rects:
+        cv.rectangle(outImg, rect[0], rect[1], color=(0, 0, 255), thickness=5)
+    return outImg
+
+
+def draw_points(img1, points):
+    outImg = img1.copy()
+    for point in points:
+        cv.circle(outImg, point, 30, (0, 0, 255), thickness=20)
+    return outImg
+
+ 
+def find_overlapping_rect(rect, rect_classes):
+    classes = []
+    for i, class_of_rects in enumerate(rect_classes):
+        for other_rect in class_of_rects:
+            if rects_overlap(rect, other_rect):
+                classes.append(i)
+                break
+    return classes
+
+
+def should_consolidate_classes(rect_class1, rect_class2):
+    for rect1 in rect_class1:
+        for rect2 in rect_class2:
+            if rects_overlap(rect1, rect2):
+                return True
+    return False
+
+
+def sort_overlapping_rects(kps, rects):
+    rect_classes = []
+    for rect in rects:
+        i_s = find_overlapping_rect(rect, rect_classes)
+        if len(i_s) == 0:
+            rect_classes.append([rect])
+        else:
+            for i in i_s:
+                rect_classes[i].append(rect)
+
+    # consolidate
+    # there's got to be a better way to do this
+    # sometimes two rectangles are not overlapping, so they are put in separate classes
+    # but, there are other rectangles that overlap both
+    # since there is a common overlap, they should all be in the same class
+    consolidated_rect_class_idxs = []
+    for i in range(len(rect_classes)):
+        for j in range(i+1, len(rect_classes)):
+            i_rc = rect_classes[i]
+            j_rc = rect_classes[j]
+            if should_consolidate_classes(i_rc, j_rc):
+                consolidated_rect_class_idxs.append((i, j))
+
+    for i, j in consolidated_rect_class_idxs:
+        for rect_class in rect_classes[j]:
+            rect_classes[i].append(rect_class)
+
+    bad_classes = set([j for _, j in consolidated_rect_class_idxs])
+    new_rect_classes = []
+    for i in range(len(rect_classes)):
+        if i not in bad_classes:
+            new_rect_classes.append(rect_classes[i])
+
+    return new_rect_classes
+
+
+def rect_union(r1, r2):
+    tl = (min(r1[0][0], r2[0][0]), min(r1[0][1], r2[0][1]))
+    br = (max(r1[1][0], r2[1][0]), max(r1[1][1], r2[1][1]))
+    return (tl, br)
+
+
+def rect_intersection(r1, r2):
+    tl = (max(r1[0][0], r2[0][0]), max(r1[0][1], r2[0][1]))
+    br = (min(r1[1][0], r2[1][0]), min(r1[1][1], r2[1][1]))
+    return (tl, br)
+
+
+def rect_class_union(rect_class):
+    out_rect = rect_class[0]
+    for rect in rect_class[1:]:
+        out_rect = rect_union(out_rect, rect)
+    return out_rect
+
+
+def rect_class_intersection(rect_class):
+    out_rect = rect_class[0]
+    for rect in rect_class[1:]:
+        out_rect = rect_intersection(out_rect, rect)
+    return out_rect
+
+
+def rect_class_probability(rect_class):
+    u = rect_class_union(rect_class)
+    i = rect_class_intersection(rect_class)
+    return rect_area(i) / rect_area(u)
+
+
+def filter_high_overlap_rect_class(rect_class):
+    idx_set = [0]
+    for i in range(len(rect_class)):
+        for j in range(i+1, len(rect_class)):
+
+            i_a = rect_area(rect_class[i])
+            j_a = rect_area(rect_class[j])
+            intsec_a = rect_area(rect_intersection(rect_class[i], rect_class[j]))
+            outside_a = i_a + j_a - 2*intsec_a
+            if i != j and outside_a > 400_000:
+                # print(outside_a)
+                idx_set.append(j)
+
+    out = []
+    for i in set(idx_set):
+        out.append(rect_class[i])
+
+    return out
+
+def duck_color_mask(image):
+    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+    ly = np.array([10,150,0])
+    uy = np.array([70,255,255])
+    yellow = cv.inRange(hsv, ly, uy)
+
+    # lw = np.array([0,0,50])
+    # uw = np.array([179,50,255])
+    # white = cv.inRange(hsv, lw, uw)
+
+    yellow_image = cv.bitwise_and(image, image, mask=yellow)
+    # white_image = cv.bitwise_and(image, image, mask=white)
+    res = yellow_image # cv.bitwise_or(yellow_image, white_image)
+    return res
+
+
+def coordinates_from_rect_classes(rect_classes):
+    out = []
+    for rect_class in rect_classes:
+        rect = rect_class_intersection(rect_class)
+        w = rect[1][0] - rect[0][0]
+        h = rect[1][1] - rect[0][1]
+        midpoint = (int(rect[0][0] + w/2), int(rect[0][1] + h/2))
+        out.append(midpoint)
+    return out
+
+
 images = list(Path("cool_duck_images").rglob('*'))
-train_image = cv.imread('./training_images/ducky.jpg', cv.IMREAD_GRAYSCALE)
+train_image = cv.imread('./training_images/ducky.jpg')
 
 orb = cv.ORB_create()
 bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
-train_image_kp, train_image_des = orb.detectAndCompute(train_image, None)
-
- 
-def drawMatchesSquares(img1, img2, kps1, matches):
-    outImg = img1.copy()
-    out_h, out_w = outImg.shape[:2]
-    for m in matches:
-        i = m.queryIdx
-        kp = kps1[i].pt
-        kpx = kp[0]
-        kpy = kp[1]
-        h, w = img2.shape[:2]
-
-        x1 = kpx - w/2.0
-        y1 = kpy - h/2.0
-        x2 = kpx + w/2.0
-        y2 = kpy + h/2.0
-
-        x1 = int(np.clip(x1, 0, out_w - 1))
-        y1 = int(np.clip(y1, 0, out_h - 1))
-        x2 = int(np.clip(x2, 0, out_w - 1))
-        y2 = int(np.clip(y2, 0, out_h - 1))
-
-        cv.rectangle(outImg, (x1, y1), (x2, y2), color=(0, 0, 255), thickness=5)
-
-    return outImg
+train_image_kp, train_image_des = orb.detectAndCompute(cv.cvtColor(duck_color_mask(train_image), cv.COLOR_BGR2GRAY), None)
 
 
 def change_image(val):
     image = cv.imread(images[val])
-    image_gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    image_blue = image[:,:,0]
-    image_green = image[:,:,1]
-    image_red = image[:,:,2]
-    
-    kp_gray, des_gray = orb.detectAndCompute(image_gray, None)
-    matches_gray = bf.match(des_gray, train_image_des)
-    matches_gray = sorted(matches_gray, key = lambda x: x.distance)
-    out_gray = drawMatchesSquares(image, train_image, kp_gray, matches_gray)
+    duck = duck_color_mask(image)
+    image_gray = cv.cvtColor(duck, cv.COLOR_BGR2GRAY)
 
-    kp_blue, des_blue = orb.detectAndCompute(image_blue, None)
-    matches_blue = bf.match(des_blue, train_image_des)
-    matches_blue = sorted(matches_blue, key = lambda x: x.distance)
-    out_blue = drawMatchesSquares(image, train_image, kp_blue, matches_blue)
+    kp, des = orb.detectAndCompute(image_gray, None)
+    matches = bf.match(des, train_image_des)
+    matches = sorted(matches, key = lambda x: x.distance)
+    rects = [get_rect(m, kp, (train_image.shape[0]/4, train_image.shape[1]/4)) for m in matches]
+    rect_classes = sort_overlapping_rects(kp, rects)
+    rr_out = draw_rects(image, rects)
+    r_out = draw_points(image, coordinates_from_rect_classes(rect_classes))
+    out = np.hstack((r_out, rr_out, duck))
 
-    kp_green, des_green = orb.detectAndCompute(image_green, None)
-    matches_green = bf.match(des_green, train_image_des)
-    matches_green = sorted(matches_green, key = lambda x: x.distance)
-    out_green = drawMatchesSquares(image, train_image, kp_green, matches_green)
+    print(len(rect_classes))
 
-    kp_red, des_red = orb.detectAndCompute(image_red, None)
-    matches_red = bf.match(des_red, train_image_des)
-    matches_red = sorted(matches_red, key = lambda x: x.distance)
-    out_red = drawMatchesSquares(image, train_image, kp_red, matches_red)
-    out = np.hstack((np.vstack((out_red, out_green)), np.vstack((out_blue, out_gray))))
     cv.imshow('duck', out)
 
 if __name__ == '__main__':
