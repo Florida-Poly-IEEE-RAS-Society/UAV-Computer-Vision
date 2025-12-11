@@ -1,6 +1,17 @@
+import math
 import cv2 as cv
 import numpy as np
 from pathlib import Path
+
+# a map from image name to coordinates
+human_field_coordinates = {}
+with open("manual_field_labels.txt") as manual:
+    for line in manual:
+        name, points = line.split(': ')
+        points = eval('[' + points + ']')
+        human_field_coordinates[name] = points
+
+datafile = open('data.txt', 'w')
 
 def cross(a, b):
     return a[0]*b[1] - a[1]*b[0]
@@ -199,6 +210,25 @@ def get_duck_points(image):
     rect_classes = sort_overlapping_rects(kp, rects)
     return coordinates_from_rect_classes(rect_classes)
 
+def dist(p1, p2):
+    return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+
+def label_true_points(true_points, estimated):
+    labeled_points = {}
+    for key in estimated:
+        labeled_points[key] = None
+    for tp in true_points:
+        best_label = None
+        best_distance = math.inf
+        for label in estimated:
+            d = dist(estimated[label], tp)
+            if d < best_distance:
+                best_label = label
+                best_distance = d
+        labeled_points[best_label] = tp
+    print(labeled_points)
+    return labeled_points
+
 def recompute_display():
     global image, display, original_scale_image
 
@@ -213,6 +243,24 @@ def recompute_display():
     green_center = highlight_square(filtered_green)
     blue_center = highlight_square(filtered_blue)
     corners = recover_keypoints(processed, blue_center, green_center)
+    linecolor = (0, 0, 255)
+    thickness = 3
+    cv.line(processed, corners["topleft"], corners["topright"], linecolor, thickness, cv.LINE_AA)
+    cv.line(processed, corners["topright"], corners["bottomright"], linecolor, thickness, cv.LINE_AA)
+    cv.line(processed, corners["bottomleft"], corners["bottomright"], linecolor, thickness, cv.LINE_AA)
+    cv.line(processed, corners["bottomleft"], corners["topleft"], linecolor, thickness, cv.LINE_AA)
+    for result in corners.values():
+        cv.circle(processed, result.astype(int), 10, (255, 0, 0), -1)
+    true_corners = human_field_coordinates[image_paths_original_scale[current_index].name]
+    true_corners = [(point[0]//3, point[1]//3) for point in true_corners]
+    for point in true_corners:
+        cv.circle(processed, point, 10, (0, 255, 0), -1)
+    labeled_true_corners = label_true_points(true_corners, corners)
+    for label in labeled_true_corners:
+        cv.line(processed, labeled_true_corners[label], corners[label], (0, 255, 0), thickness, cv.LINE_AA)
+    distances = [dist(labeled_true_corners[label], corners[label]) for label in ['topleft', 'topright', 'bottomright', 'bottomleft']]
+    print(image_paths_original_scale[current_index].name + ":", distances, file=datafile, flush=True)
+
     both_squares = cv.bitwise_or(filtered_blue, filtered_green)
     duck_points = get_duck_points(original_scale_image)
     for point in duck_points:
@@ -221,18 +269,16 @@ def recompute_display():
     field_diagram = (np.ones((1500+margin*2, 1000+margin*2, 3))*255).astype(np.uint8)
     filler = (np.ones((1500+margin*2, (processed.shape[1]*2)-(1000+margin*2), 3))*255).astype(np.uint8)
     field_diagram[margin:1500+margin, margin:1000+margin, :] = 0
+    field_diagram[margin:250+margin, margin:250+margin] = [0, 160, 0]
 
     for point in duck_points:
         uv_point = invBilinear((point[0]//3, point[1]//3), corners["topleft"], corners["topright"], corners["bottomright"], corners["bottomleft"])
         diagram_point = (int(uv_point[0]*1000+margin), int(uv_point[1]*1500+margin))
-        print(diagram_point)
         cv.circle(field_diagram, diagram_point, 10, (0, 0, 255), thickness=5)
 
     display_row = np.hstack((processed, both_squares))
     field_row = np.hstack([field_diagram, filler])
     display = np.vstack([display_row, field_row])
-    cv.putText(display, f"{keypoints['demo']}", (20, 90),
-        cv.FONT_HERSHEY_SIMPLEX, 4.0, (255, 255, 255), 5, cv.LINE_AA)
     #cv.putText(display, f"field_coord: {keypoints['demo']}", (20+processed.shape[1], 90),
     #    cv.FONT_HERSHEY_SIMPLEX, 4.0, (255, 255, 255), 5, cv.LINE_AA)
 
@@ -241,13 +287,11 @@ VEC_SCALE = 100
 def on_change_parallel(p):
     p /= VEC_SCALE
     p -= 4
-    keypoints["demo"][0] = p
     on_slider_change()
 
 def on_change_perpendicular(p):
     p /= VEC_SCALE
     p -= 4
-    keypoints["demo"][1] = p
     on_slider_change()
 
 def on_slider_change(x=None):
@@ -297,7 +341,6 @@ keypoints = {
     "bottomright": np.array([1.86, 0.91]),
     "bottomleft": np.array([0.79, 1.51]),
     "topright": np.array([0.87, -0.7]),
-    "demo": np.array([0.0, 0.0])
 }
 def recover_keypoints(image, blue, green):
     parallel = np.array(blue) - np.array(green)
@@ -305,14 +348,6 @@ def recover_keypoints(image, blue, green):
     results = {}
     for name, point in keypoints.items():
         results[name] = (parallel * point[0] + perpendicular * point[1] + green).astype(int)
-    linecolor = (0, 0, 255)
-    thickness = 3
-    cv.line(image, results["topleft"], results["topright"], linecolor, thickness, cv.LINE_AA)
-    cv.line(image, results["topright"], results["bottomright"], linecolor, thickness, cv.LINE_AA)
-    cv.line(image, results["bottomleft"], results["bottomright"], linecolor, thickness, cv.LINE_AA)
-    cv.line(image, results["bottomleft"], results["topleft"], linecolor, thickness, cv.LINE_AA)
-    for result in results.values():
-        cv.circle(image, result.astype(int), 10, (255, 0, 0), -1)
     return results
 
 window_name = "HSV Mask Demo"

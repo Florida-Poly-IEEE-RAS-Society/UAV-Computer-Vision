@@ -50,8 +50,6 @@ def highlight_square(image):
     center = (x+w//2, y+h//2)
     cv.circle(image, center, 20, (0, 0, 255), -1)
 
-
-
 while True:
     # Get selected image index
     new_index = cv.getTrackbarPos("Image #", "HSV Mask Demo")

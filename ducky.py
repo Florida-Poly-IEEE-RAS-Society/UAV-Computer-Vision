@@ -12,7 +12,7 @@ def rects_overlap(r1, r2):
     r2x2 = r2[1][0]
     r2y1 = r2[0][1]
     r2y2 = r2[1][1]
-    
+
     return r1x1 < r2x2 and r1x2 > r2x1 and r1y1 < r2y2 and r1y2 > r2y1
 
 
@@ -27,7 +27,7 @@ def get_rect(match, kps, rect_shape):
     y1 = int(kpy - h/2.0)
     x2 = int(kpx + w/2.0)
     y2 = int(kpy + h/2.0)
-    
+
     return ((x1, y1), (x2, y2))
 
 
@@ -55,7 +55,7 @@ def draw_points(img1, points):
         cv.circle(outImg, point, 30, (0, 0, 255), thickness=20)
     return outImg
 
- 
+
 def find_overlapping_rect(rect, rect_classes):
     classes = []
     for i, class_of_rects in enumerate(rect_classes):
@@ -135,7 +135,6 @@ def rect_class_intersection(rect_class):
         out_rect = rect_intersection(out_rect, rect)
     return out_rect
 
-
 def rect_class_probability(rect_class):
     u = rect_class_union(rect_class)
     i = rect_class_intersection(rect_class)
@@ -196,6 +195,33 @@ orb = cv.ORB_create()
 bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
 train_image_kp, train_image_des = orb.detectAndCompute(cv.cvtColor(duck_color_mask(train_image), cv.COLOR_BGR2GRAY), None)
+
+
+def duck_color_mask(image):
+    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+    ly = np.array([10,150,0])
+    uy = np.array([70,255,255])
+    yellow = cv.inRange(hsv, ly, uy)
+
+    # lw = np.array([0,0,50])
+    # uw = np.array([179,50,255])
+    # white = cv.inRange(hsv, lw, uw)
+
+    yellow_image = cv.bitwise_and(image, image, mask=yellow)
+    # white_image = cv.bitwise_and(image, image, mask=white)
+    res = yellow_image # cv.bitwise_or(yellow_image, white_image)
+    return res
+
+def get_duck_points(image):
+    duck = duck_color_mask(image)
+    image_gray = cv.cvtColor(duck, cv.COLOR_BGR2GRAY)
+    kp, des = orb.detectAndCompute(image_gray, None)
+    matches = bf.match(des, train_image_des)
+    matches = sorted(matches, key = lambda x: x.distance)
+    rects = [get_rect(m, kp, (train_image.shape[0]/4, train_image.shape[1]/4)) for m in matches]
+    rect_classes = sort_overlapping_rects(kp, rects)
+    return coordinates_from_rect_classes(rect_classes)
 
 
 def change_image(val):
