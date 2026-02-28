@@ -2,9 +2,11 @@ import math
 import cv2 as cv
 import numpy as np
 from pathlib import Path
+import os
 
 orb = cv.ORB_create()
-train_image = cv.imread('./training_images/ducky.jpg')
+dirname = os.path.dirname(__file__)
+train_image = cv.imread(dirname / Path('./training_images/ducky.jpg'))
 
 hsv_low_green = np.array([48, 45, 149])
 hsv_high_green = np.array([82, 255, 255])
