@@ -205,6 +205,7 @@ def get_field_corner_points(image, duck_points):
     field_corners = []
     for point in duck_points:
         uv_point = invBilinear((point[0]//3, point[1]//3), corners["topleft"], corners["topright"], corners["bottomright"], corners["bottomleft"])
+        field_corners.append(uv_point)
 
     return field_corners
 
