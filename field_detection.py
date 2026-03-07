@@ -188,6 +188,24 @@ def get_duck_points(image):
     rect_classes = sort_overlapping_rects(kp, rects)
     return coordinates_from_rect_classes(rect_classes)
 
+def get_field_corner_points(image, duck_points):
+    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+    mask_blue = cv.inRange(hsv, hsv_low_blue, hsv_high_blue)
+    filtered_blue = cv.bitwise_and(image, image, mask=mask_blue)
+    mask_green = cv.inRange(hsv, hsv_low_green, hsv_high_green)
+    filtered_green = cv.bitwise_and(image, image, mask=mask_green)
+
+    green_center = highlight_square(filtered_green)
+    blue_center = highlight_square(filtered_blue)
+
+    corners = recover_keypoints(image, blue_center, green_center)
+
+    field_corners = []
+    for point in duck_points:
+        uv_point = invBilinear((point[0]//3, point[1]//3), corners["topleft"], corners["topright"], corners["bottomright"], corners["bottomleft"])
+
+    return field_corners
+
 def dist(p1, p2):
     return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
@@ -221,8 +239,9 @@ def recompute_display(image, original_scale_image):
     field_diagram[margin:1500+margin, margin:1000+margin, :] = 0
     field_diagram[margin:250+margin, margin:250+margin] = [0, 160, 0]
 
-    for point in duck_points:
-        uv_point = invBilinear((point[0]//3, point[1]//3), corners["topleft"], corners["topright"], corners["bottomright"], corners["bottomleft"])
+    field_corners = get_field_corner_points(image, duck_points)
+
+    for uv_point in field_corners:
         diagram_point = (int(uv_point[0]*1000+margin), int(uv_point[1]*1500+margin))
         cv.circle(field_diagram, diagram_point, 10, (0, 0, 255), thickness=5)
 
