@@ -3,15 +3,26 @@ import cv2 as cv
 import numpy as np
 from pathlib import Path
 import os
+import shelve
+import pathlib
+import copy
+
+BASE_DIR = Path(__file__).resolve().parent
+shelf_path = BASE_DIR / "hsv_filters"
+
+shelf_real = shelve.open(str(shelf_path))
+shelf = dict(shelf_real) #copy
+shelf_real.close()
 
 orb = cv.ORB_create()
 dirname = os.path.dirname(__file__)
 train_image = cv.imread(dirname / Path('./training_images/ducky.jpg'))
 
-hsv_low_green = np.array([48, 45, 149])
-hsv_high_green = np.array([82, 255, 255])
-hsv_low_blue = np.array([112, 45, 169])
-hsv_high_blue = np.array([122, 255, 255])
+def color_mask(image, filter_name):
+    hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+    filter = shelf[filter_name]
+    mask = cv.inRange(hsv_image, np.array(filter[:3]), np.array(filter[3:]))
+    return mask
 
 bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
@@ -64,11 +75,7 @@ def invBilinear(p, a, b, c, d):
 
 # Load images
 def duck_color_mask(image):
-    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-
-    ly = np.array([10,150,0])
-    uy = np.array([70,255,255])
-    yellow = cv.inRange(hsv, ly, uy)
+    yellow = color_mask(image, "duck")
 
     # lw = np.array([0,0,50])
     # uw = np.array([179,50,255])
@@ -191,10 +198,9 @@ def get_duck_points(image):
     return coordinates_from_rect_classes(rect_classes)
 
 def get_field_corner_points(image):
-    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-    mask_blue = cv.inRange(hsv, hsv_low_blue, hsv_high_blue)
+    mask_blue = color_mask(image, 'blue_square')
     filtered_blue = cv.bitwise_and(image, image, mask=mask_blue)
-    mask_green = cv.inRange(hsv, hsv_low_green, hsv_high_green)
+    mask_green = color_mask(image, 'green_square')
     filtered_green = cv.bitwise_and(image, image, mask=mask_green)
 
     green_center = highlight_square(filtered_green)
@@ -216,14 +222,15 @@ def recompute_display(image, original_scale_image):
 
     processed = image.copy()
     corners = get_field_corner_points(processed)
-    linecolor = (0, 0, 255)
-    thickness = 3
-    cv.line(processed, corners["topleft"], corners["topright"], linecolor, thickness, cv.LINE_AA)
-    cv.line(processed, corners["topright"], corners["bottomright"], linecolor, thickness, cv.LINE_AA)
-    cv.line(processed, corners["bottomleft"], corners["bottomright"], linecolor, thickness, cv.LINE_AA)
-    cv.line(processed, corners["bottomleft"], corners["topleft"], linecolor, thickness, cv.LINE_AA)
-    for result in corners.values():
-        cv.circle(processed, result.astype(int), 10, (255, 0, 0), -1)
+    if corners is not None:
+        linecolor = (0, 0, 255)
+        thickness = 3
+        cv.line(processed, corners["topleft"], corners["topright"], linecolor, thickness, cv.LINE_AA)
+        cv.line(processed, corners["topright"], corners["bottomright"], linecolor, thickness, cv.LINE_AA)
+        cv.line(processed, corners["bottomleft"], corners["bottomright"], linecolor, thickness, cv.LINE_AA)
+        cv.line(processed, corners["bottomleft"], corners["topleft"], linecolor, thickness, cv.LINE_AA)
+        for result in corners.values():
+            cv.circle(processed, result.astype(int), 10, (255, 0, 0), -1)
 
     both_squares = cv.bitwise_or(filtered_blue, filtered_green)
     duck_points = get_duck_points(original_scale_image)
@@ -231,14 +238,16 @@ def recompute_display(image, original_scale_image):
         cv.circle(processed, (point[0]//3, point[1]//3), 10, (0, 0, 255), thickness=5)
     margin = 100
     field_diagram = (np.ones((1500+margin*2, 1000+margin*2, 3))*255).astype(np.uint8)
+    print(processed.shape)
     filler = (np.ones((1500+margin*2, (processed.shape[1]*2)-(1000+margin*2), 3))*255).astype(np.uint8)
     field_diagram[margin:1500+margin, margin:1000+margin, :] = 0
     field_diagram[margin:250+margin, margin:250+margin] = [0, 160, 0]
 
-    for uv_point in corners:
-        uv_point = invBilinear((point[0]//3, point[1]//3), corners["topleft"], corners["topright"], corners["bottomright"], corners["bottomleft"])
-        diagram_point = (int(uv_point[0]*1000+margin), int(uv_point[1]*1500+margin))
-        cv.circle(field_diagram, diagram_point, 10, (0, 0, 255), thickness=5)
+    if corners is not None:
+        for point in duck_points:
+            uv_point = invBilinear((point[0]//3, point[1]//3), corners["topleft"], corners["topright"], corners["bottomright"], corners["bottomleft"])
+            diagram_point = (int(uv_point[0]*1000+margin), int(uv_point[1]*1500+margin))
+            cv.circle(field_diagram, diagram_point, 10, (0, 0, 255), thickness=5)
 
     display_row = np.hstack((processed, both_squares))
     field_row = np.hstack([field_diagram, filler])
@@ -271,7 +280,7 @@ def highlight_square(image):
                 biggest_region = count
                 biggest_rect = rect
 
-    if biggest_rect:
+    if biggest_rect and biggest_region > 100:
         x, y, w, h = biggest_rect
         center = (x + w//2, y + h//2)
         cv.circle(image, center, 20, (0, 0, 255), -1)
@@ -284,6 +293,8 @@ keypoints = {
     "topright": np.array([0.87, -0.7]),
 }
 def recover_keypoints(image, blue, green):
+    if blue is None or green is None:
+        return None
     parallel = np.array(blue) - np.array(green)
     perpendicular = np.array([-parallel[1], parallel[0]])
     results = {}
